@@ -22,7 +22,12 @@ public class LobbyManager : MonoBehaviour
     public GameObject playerItemPrefab;
     public GameObject playerPopup;
     public ScrollRect playerScrollView;
+    [Header("UI")]
+    public TMP_Text codeText;
+    public TMP_Text actualCodeText;
     public Button leaveLobbyButton;
+    public GameObject popupCopied;
+
 
     private async void Start()
     {
@@ -59,14 +64,7 @@ public class LobbyManager : MonoBehaviour
     
         if(lobby != null)
         {
-            playerPopup.SetActive(true);
-            leaveLobbyButton.onClick.AddListener(async () => { await LeaveLobbyAsync(lobby.Id); }); // Agregar el listener solo una vez
-            foreach (var player in lobby.Players)
-            {
-                var playerItem = Instantiate(playerItemPrefab, playerScrollView.content);
-                playerItem.GetComponent<LobbyPlayerItem>().playerName.text = $"{player.Id}";
-                playerItem.GetComponent<LobbyPlayerItem>().actualLobbyId = lobby.Id;
-            }
+            SetupLobbyUI(lobby);
         }
     }
 
@@ -176,24 +174,35 @@ public class LobbyManager : MonoBehaviour
         {
             var lobby = await LobbyService.Instance.JoinLobbyByIdAsync(lobbyId);
             Debug.Log(lobby.Name);
-
-            playerPopup.SetActive(true);
             
-            leaveLobbyButton.onClick.AddListener(async () => { await LeaveLobbyAsync(lobby.Id); });
+            SetupLobbyUI(lobby);
             
-            foreach (var player in lobby.Players)
-            {
-                var playerItem = Instantiate(playerItemPrefab, playerScrollView.content);
-                playerItem.GetComponent<LobbyPlayerItem>().playerName.text = $"{player.Id}";
-                playerItem.GetComponent<LobbyPlayerItem>().actualLobbyId = lobbyId;
-            }
-
             return lobby;
         }
         catch (LobbyServiceException ex)
         {
             Debug.LogException(ex);
             return null;
+        }
+    }
+
+    public async void JoinLobbyByCode()
+    {
+        try
+        {
+            var lobbyCode = codeText.text.Trim();
+            lobbyCode = lobbyCode.Replace("\u200B", string.Empty); // Elimina el carácter inválido
+            Debug.Log("Lobby code: " + lobbyCode);
+            var lobby = await JoinLobbyByCodeAsync(lobbyCode);
+
+            if(lobby != null)
+            {
+                SetupLobbyUI(lobby);
+            }
+        }
+        catch (LobbyServiceException ex)
+        {
+            Debug.LogException(ex);
         }
     }
 
@@ -208,6 +217,16 @@ public class LobbyManager : MonoBehaviour
         {
             Debug.LogException(ex);
             return null;
+        }
+    }
+
+    public async void QuickJoin()
+    {
+        var lobby = await QuickJoinLobbyAsync();
+
+        if(lobby != null)
+        {
+            SetupLobbyUI(lobby);
         }
     }
 
@@ -257,5 +276,40 @@ public class LobbyManager : MonoBehaviour
         {
             LobbyService.Instance.DeleteLobbyAsync(lobbyId);
         }
+    }
+
+    public void SetupLobbyUI(Lobby lobby)
+    {
+        playerPopup.SetActive(true);
+
+        // Vaciar el scrollView
+        foreach (Transform child in playerScrollView.content)
+        {
+            Destroy(child.gameObject);
+        }
+
+        leaveLobbyButton.onClick.AddListener(async () => { await LeaveLobbyAsync(lobby.Id); }); // Agregar el listener solo una vez
+        foreach (var player in lobby.Players)
+        {
+            var playerItem = Instantiate(playerItemPrefab, playerScrollView.content);
+            playerItem.GetComponent<LobbyPlayerItem>().playerName.text = $"{player.Id}";
+            playerItem.GetComponent<LobbyPlayerItem>().actualLobbyId = lobby.Id;
+        }
+
+        actualCodeText.text = lobby.LobbyCode;
+    }
+
+    public void CopyCodeToClipboard()
+    {
+        GUIUtility.systemCopyBuffer = actualCodeText.text;
+        popupCopied.SetActive(true);
+
+        // Desactivar popup despues de 3 segundos
+        Invoke(nameof(HidePopupCopied), 3f);
+    }
+
+    private void HidePopupCopied()
+    {
+        popupCopied.SetActive(false);
     }
 }
