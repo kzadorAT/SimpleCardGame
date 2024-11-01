@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -68,6 +69,73 @@ public class LobbyManager : MonoBehaviour
         }
     }
 
+    public async void SubscribeToLobbyEvents(string lobbyId)
+    {
+        try
+        {
+            var lobby = await LobbyService.Instance.GetLobbyAsync(lobbyId);
+            Debug.Log(lobby.Name);
+
+            if(lobby == null)
+            {
+                Debug.Log("Lobby not found");
+                return;
+            }
+
+            var callbacks = new LobbyEventCallbacks();
+            callbacks.LobbyChanged += OnLobbyChanged;
+            callbacks.KickedFromLobby += OnKickedFromLobby;
+            callbacks.LobbyEventConnectionStateChanged += OnLobbyEventConnectionStateChanged;
+            callbacks.PlayerJoined += OnPlayerJoined;
+            callbacks.PlayerLeft += OnPlayerLeft;
+
+            try
+            {
+                await LobbyService.Instance.SubscribeToLobbyEventsAsync(lobby.Id, callbacks);
+            }
+            catch (LobbyServiceException ex)
+            {
+                Debug.LogException(ex);
+            }
+        }
+        catch (LobbyServiceException ex)
+        {
+            Debug.LogException(ex);
+        }
+    }
+
+    private void OnPlayerJoined(List<LobbyPlayerJoined> list)
+    {
+        foreach (var player in list)
+        {
+            AddPlayerToLobbyUI(player.Player, player.PlayerIndex);
+        }
+    }
+
+    private void OnPlayerLeft(List<int> list)
+    {
+        foreach (var playerIndex in list)
+        {
+            RemovePlayerFromLobbyUI(playerIndex);
+        }
+    }
+
+    private void OnLobbyChanged(ILobbyChanges changes)
+    {
+        Debug.Log("Lobby changed");
+    }
+
+    private void OnKickedFromLobby()
+    {
+        Debug.Log("Kicked from lobby");
+    }
+
+    private void OnLobbyEventConnectionStateChanged(LobbyEventConnectionState state)
+    {
+        Debug.Log("Lobby event connection state changed");
+    }
+
+
     public async Task<Lobby> CreateLobbyAsync(bool isPrivate = false)
     {
         try
@@ -86,7 +154,7 @@ public class LobbyManager : MonoBehaviour
         }
         catch (LobbyServiceException ex)
         {
-            Debug.LogException(ex);            
+            Debug.LogException(ex);
             return null;
         }
     }
@@ -288,15 +356,45 @@ public class LobbyManager : MonoBehaviour
             Destroy(child.gameObject);
         }
 
-        leaveLobbyButton.onClick.AddListener(async () => { await LeaveLobbyAsync(lobby.Id); }); // Agregar el listener solo una vez
+        SubscribeToLobbyEvents(lobby.Id);
+
+        leaveLobbyButton.onClick.AddListener(async () => { await LeaveLobbyAsync(lobby.Id); });
+
+        var playerAllocation = lobby.Players.FirstOrDefault(p => p.Id == AuthenticationService.Instance.PlayerId).AllocationId;
+
         foreach (var player in lobby.Players)
         {
-            var playerItem = Instantiate(playerItemPrefab, playerScrollView.content);
-            playerItem.GetComponent<LobbyPlayerItem>().playerName.text = $"{player.Id}";
-            playerItem.GetComponent<LobbyPlayerItem>().actualLobbyId = lobby.Id;
+            AddPlayerToLobbyUI(player, lobby.Players.IndexOf(player));
         }
 
         actualCodeText.text = lobby.LobbyCode;
+    }
+
+    public void AddPlayerToLobbyUI(Player player, int lobbyIndex = -1)
+    {
+        var playerItem = Instantiate(playerItemPrefab, playerScrollView.content);
+        playerItem.GetComponent<LobbyPlayerItem>().playerId = player.Id;
+        playerItem.GetComponent<LobbyPlayerItem>().playerName.text = $"{player.Id}";
+        playerItem.GetComponent<LobbyPlayerItem>().actualLobbyIndex = lobbyIndex;
+    }
+
+    public void RemovePlayerFromLobbyUI(int playerIndex)
+    {
+        // Remover al jugador en la posicion playerId
+        var playerItem = playerScrollView.content.GetChild(playerIndex).gameObject;
+        // Validar que el playerItem concuerde con el actualLobbyIndex en LobbyPlayerItem
+        if (playerItem.GetComponent<LobbyPlayerItem>().actualLobbyIndex == playerIndex)
+        {
+            Destroy(playerItem);
+        }
+        // Actualizar el actualLobbyIndex en los demas Items del scrollview
+        for (var i = 0; i < playerScrollView.content.childCount; i++)
+        {
+            if (playerScrollView.content.GetChild(i).GetComponent<LobbyPlayerItem>().actualLobbyIndex > playerIndex)
+            {
+                playerScrollView.content.GetChild(i).GetComponent<LobbyPlayerItem>().actualLobbyIndex -= 1;
+            }
+        }
     }
 
     public void CopyCodeToClipboard()
